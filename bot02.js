@@ -4,7 +4,6 @@ const qrcode = require('qrcode-terminal');
 const axios = require('axios');
 const fs = require('fs');
 
-// Inicialização do cliente
 const client = new Client();
 
 client.on('qr', qr => qrcode.generate(qr, { small: true }));
@@ -13,20 +12,16 @@ client.on('ready', () => {
     console.log('Bot está pronto!');
 });
 
-// Leitura do catálogo JSON
 const catalogo = JSON.parse(fs.readFileSync('./catalogo.json', 'utf-8'));
 
-// Configurações
 const saudacoesSimples = ['oi', 'olá', 'ola', 'bom dia', 'boa tarde', 'boa noite', 'opa'];
-const horarioAtendimento = { inicio: 8, fim: 18 }; // 8h às 18h
+const horarioAtendimento = { inicio: 8, fim: 18 }; 
 
-// Função para verificar se estamos dentro do horário comercial
 function dentroDoHorarioComercial() {
     const hora = new Date().getHours();
     return hora >= horarioAtendimento.inicio && hora < horarioAtendimento.fim;
 }
 
-// Função para buscar no catálogo
 function buscarNoCatalogo(texto) {
     texto = texto.toLowerCase();
     for (const produto of catalogo.produtos) {
@@ -37,7 +32,24 @@ function buscarNoCatalogo(texto) {
     return null;
 }
 
-// Função de fallback para o ChatGPT
+const historicoPath = './historico.json';
+
+function registrarAtendimento(dados) {
+    let historico = [];
+
+    if (fs.existsSync(historicoPath)) {
+        try {
+            historico = JSON.parse(fs.readFileSync(historicoPath));
+        } catch (e) {
+            console.error('Erro ao ler historico.json:', e.message);
+        }
+    }
+
+    historico.push(dados);
+
+    fs.writeFileSync(historicoPath, JSON.stringify(historico, null, 2));
+}
+
 async function enviarParaChatGPT(mensagem) {
     const mensagens = [
         {
@@ -63,14 +75,13 @@ async function enviarParaChatGPT(mensagem) {
     return resposta.data.choices[0].message.content.trim();
 }
 
-// Tratamento de mensagens
 client.on('message_create', async message => {
     if (message.fromMe) return;
     const agora = Date.now();
     const recebida = message.timestamp * 1000;
 
     if ((agora - recebida) > 1000 * 60 * 5) {
-    return; // Ignora mensagens com mais de 5 minutos
+    return; 
     }
 
     const texto = message.body.toLowerCase().trim();
@@ -101,26 +112,31 @@ Digite o número da opção desejada ou mande sua dúvida.`);
         return message.reply('👤 Encaminhando sua solicitação para um de nossos atendentes. Por favor, aguarde.');
     }
 
-    // Verifica se o texto menciona um produto do catálogo
     const respostaCatalogo = buscarNoCatalogo(texto);
     if (respostaCatalogo) {
         return message.reply(respostaCatalogo);
     }
 
-    // Se a mensagem for curta ou genérica demais, peça mais contexto
     if (texto.length < 3) {
         return message.reply('🤔 Poderia me dar mais detalhes para que eu possa ajudar melhor?');
     }
 
-    // Fallback para ChatGPT
     try {
         const respostaIA = await enviarParaChatGPT(texto);
         await message.reply(respostaIA);
+       
+        registrarAtendimento({
+        numero: message.from,
+        mensagem: message.body,
+        resposta: respostaIA,
+        horario: new Date().toISOString()
+    });
+
     } catch (error) {
         console.error('Erro com ChatGPT:', error.message);
         await message.reply('❌ Desculpe, houve um erro ao tentar responder. Por favor, tente novamente mais tarde.');
     }
 });
 
-// Inicialização do bot
+// Inicialização do bot -->  node bot02.js
 client.initialize();
